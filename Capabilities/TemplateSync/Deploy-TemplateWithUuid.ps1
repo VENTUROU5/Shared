@@ -127,7 +127,7 @@ try {
             
             # Apply the UUID using extraConfig
             $Spec = New-Object VMware.Vim.VirtualMachineConfigSpec
-            $Spec.uuid = $UuidMapping.InstanceUuid
+            $Spec.instanceUuid = $UuidMapping.InstanceUuid
             
             $NewVM.ExtensionData.ReconfigVM($Spec)
             

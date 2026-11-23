@@ -60,7 +60,7 @@ function Save-SourceState {
     $State | ConvertTo-Json -Depth 10 | Set-Content $StateFile
 }
 
-function Export-ContentLibraryItem {
+function Export-LibraryItemToSmb {
     param(
         [VMware.VimAutomation.ViCore.Types.V1.ContentLibrary.ContentLibraryItem]$Item,
         [string]$Version,
@@ -159,7 +159,7 @@ try {
         }
         
         # Get version info - using ContentVersion property
-        $CurrentVersion = $Item.ContentVersion
+        $CurrentVersion = $Item.Version
         $LastExportedVersion = $State[$Item.Name]
         
         $UpdatedState[$Item.Name] = $CurrentVersion
@@ -171,7 +171,7 @@ try {
                 Write-Log "New item detected: $($Item.Name) (Version: $CurrentVersion)"
             }
             
-            $Result = Export-ContentLibraryItem -Item $Item -Version $CurrentVersion -ExportBasePath $ExportsPath
+            $Result = Export-LibraryItemToSmb -Item $Item -Version $CurrentVersion -ExportBasePath $ExportsPath
             if ($Result) {
                 $ExportCount++
             }

@@ -102,7 +102,7 @@ function Get-LatestExportVersion {
     
     # Get the highest version directory
     $Versions = Get-ChildItem -Path $TemplatePath -Directory | 
-        Sort-Object { [int]$_.Name } -Descending
+        Sort-Object Name -Descending
     
     if ($Versions) {
         return $Versions[0].Name
@@ -144,7 +144,7 @@ function Import-TemplateToLibrary {
         }
         
         # Import the OVF to content library
-        $NewItem = New-ContentLibraryItem -ContentLibrary $Library -Name $TemplateName -Files $OvfFile.FullName -ErrorAction Stop
+        $NewItem = New-ContentLibraryItem -ContentLibrary $Library -Name $TemplateName -FilePath $OvfFile.FullName -ErrorAction Stop
         
         Write-Log "Successfully imported $TemplateName (ID: $($NewItem.Id))"
         
