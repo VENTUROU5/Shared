@@ -1,27 +1,39 @@
-# VMware Template Distribution Configuration
+# TemplateSync Configuration
+# Copy this file and update values for your environment
 
-# Source vCenter (only used by source script)
-$SourceVCenter = "vcenter-source.domain.local"
+# Source vCenter (where Content Library lives)
+$SourceVCenter = "vcenter.plenty.wtf"
 $SourceContentLibrary = "AutomatedTemplates"
 
-# Destination vCenter (only used by destination script)
-$DestinationVCenter = "vcenter-dest.domain.local"
-$DestinationContentLibrary = "AutomatedTemplates"
-$DestinationVCenterName = "vcenter-dest"  # Used for UUID storage path
+# Destination vCenters (array - sync to all of these)
+$DestinationVCenters = @(
+    @{
+        Server = "vcenter.plenty.wtf"      # Can be same as source for testing
+        Name   = "vcenter-prod"             # Short name for UUID storage
+        Folder = "AutomatedTemplates"       # VM folder to store templates
+    }
+    # Add more destinations:
+    # @{
+    #     Server = "vcenter2.domain.local"
+    #     Name   = "vcenter-dr"
+    #     Folder = "AutomatedTemplates"
+    # }
+)
 
-# SMB Share paths
+# SMB Share for staging exports (accessible from all management hosts)
 $SmbShareRoot = "\\fileserver\vmware-templates"
 $ExportsPath = Join-Path $SmbShareRoot "exports"
-$UuidsPath = Join-Path $SmbShareRoot "uuids"
 $StatePath = Join-Path $SmbShareRoot "state"
+$UuidsPath = Join-Path $SmbShareRoot "uuids"    # Stores instance UUIDs per vCenter
 
 # Credentials - path to encrypted credential file
-# Create with: Get-Credential | Export-Clixml -Path "C:\Scripts\vcenter-creds.xml"
-$CredentialFile = "C:\Scripts\vcenter-creds.xml"
+# Create with: Get-Credential | Export-Clixml -Path "C:\Scripts\TemplateSync\vcenter-creds.xml"
+$CredentialFile = "C:\Scripts\TemplateSync\vcenter-creds.xml"
+
+# Deployment settings
+$DefaultResourcePool = $null    # Use default if not specified
+$DefaultDatastore = $null       # Use default if not specified
 
 # Logging
-$LogPath = "C:\Scripts\Logs"
+$LogPath = "C:\Scripts\TemplateSync\Logs"
 $LogRetentionDays = 30
-
-# Timing (source script only)
-$CheckIntervalMinutes = 15
