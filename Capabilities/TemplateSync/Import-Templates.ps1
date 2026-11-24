@@ -1,4 +1,4 @@
-#Requires -Modules VMware.PowerCLI
+# Requires VMware.PowerCLI (Import-Module below handles the check)
 <#
 .SYNOPSIS
     Imports templates to destination vCenters, preserving Instance UUIDs.
@@ -29,6 +29,16 @@ param(
 )
 
 . $ConfigPath
+
+# Import VMware.PowerCLI
+try {
+    Import-Module VMware.VimAutomation.Core -ErrorAction Stop
+    Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false -ParticipateInCeip:$false -ErrorAction SilentlyContinue | Out-Null
+} catch {
+    Write-Error "Failed to import VMware.PowerCLI: $_"
+    Write-Error "Install with: Install-Module VMware.PowerCLI -Scope CurrentUser"
+    exit 1
+}
 
 $LogFile = Join-Path $LogPath "Import_$(Get-Date -Format 'yyyyMMdd').log"
 New-Item -ItemType Directory -Path $LogPath -Force -ErrorAction SilentlyContinue | Out-Null
