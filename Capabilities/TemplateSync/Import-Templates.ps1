@@ -207,21 +207,54 @@ try {
                     continue
                 }
                 
-                # Get deployment target
-                $VMHost = Get-VMHost | Where-Object { $_.ConnectionState -eq "Connected" } | Select-Object -First 1
-                $Datastore = if ($DefaultDatastore) { 
-                    Get-Datastore -Name $DefaultDatastore 
-                } else { 
-                    Get-Datastore | Sort-Object FreeSpaceGB -Descending | Select-Object -First 1 
+                # Get deployment targets by tag "AutomatedTemplate"
+                $TargetTag = Get-Tag -Name "AutomatedTemplate" -ErrorAction SilentlyContinue
+                if (-not $TargetTag) {
+                    Write-Log "    Tag AutomatedTemplate not found - using defaults" "WARN"
+                    $Cluster = Get-Cluster | Select-Object -First 1
+                    $Datastore = Get-Datastore | Sort-Object FreeSpaceGB -Descending | Select-Object -First 1
+                    $Network = Get-VirtualPortGroup | Select-Object -First 1
+                } else {
+                    # Find tagged resources
+                    $Cluster = Get-Cluster | Where-Object { (Get-TagAssignment -Entity $_ -Tag $TargetTag -ErrorAction SilentlyContinue) } | Select-Object -First 1
+                    $Datastore = Get-Datastore | Where-Object { (Get-TagAssignment -Entity $_ -Tag $TargetTag -ErrorAction SilentlyContinue) } | Select-Object -First 1
+                    $Network = Get-VirtualPortGroup | Where-Object { (Get-TagAssignment -Entity $_ -Tag $TargetTag -ErrorAction SilentlyContinue) } | Select-Object -First 1
+                    
+                    if (-not $Cluster) {
+                        Write-Log "    No cluster with AutomatedTemplate tag - using first available" "WARN"
+                        $Cluster = Get-Cluster | Select-Object -First 1
+                    }
+                    if (-not $Datastore) {
+                        Write-Log "    No datastore with AutomatedTemplate tag - using largest" "WARN"
+                        $Datastore = Get-Datastore | Sort-Object FreeSpaceGB -Descending | Select-Object -First 1
+                    }
+                    if (-not $Network) {
+                        Write-Log "    No network with AutomatedTemplate tag - using first available" "WARN"
+                        $Network = Get-VirtualPortGroup | Select-Object -First 1
+                    }
                 }
+                
+                # Get a connected host from the cluster
+                $VMHost = Get-VMHost -Location $Cluster | Where-Object { $_.ConnectionState -eq "Connected" } | Select-Object -First 1
+                if (-not $VMHost) {
+                    Write-Log "    No connected host in cluster $($Cluster.Name)" "ERROR"
+                    continue
+                }
+                
+                Write-Log "    Targets: Cluster=$($Cluster.Name), Host=$($VMHost.Name), Datastore=$($Datastore.Name), Network=$($Network.Name)"
                 
                 # Deploy new template with temporary name
                 $TempName = "$TemplateName-new-$(Get-Date -Format 'yyyyMMddHHmmss')"
                 
                 try {
-                    Write-Log "    Deploying OVF to $($VMHost.Name)..."
+                    Write-Log "    Deploying OVF..."
                     
                     $OvfConfig = Get-OvfConfiguration -Ovf $OvfFile.FullName
+                    
+                    # Map OVF networks to tagged network
+                    $OvfConfig.NetworkMapping.PSObject.Properties | ForEach-Object {
+                        $_.Value = $Network.Name
+                    }
                     
                     Import-VApp -Source $OvfFile.FullName -OvfConfiguration $OvfConfig `
                         -Name $TempName -VMHost $VMHost -Datastore $Datastore `
