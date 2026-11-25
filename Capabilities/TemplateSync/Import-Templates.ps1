@@ -198,7 +198,6 @@ try {
                     $UuidMapping[$TemplateName] = $PreserveUuid
                     Write-Log "    Existing template found at $($ExistingTemplate.Folder.Name), will preserve UUID: $PreserveUuid"
                 }
-                }
                 elseif ($UuidMapping[$TemplateName]) {
                     # Template was deleted but we have stored UUID
                     $PreserveUuid = $UuidMapping[$TemplateName]
