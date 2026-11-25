@@ -297,7 +297,7 @@ try {
                     # Move to destination folder (if not already there)
                     $FinalTemplate = Get-Template -Name $TemplateName
                     if ($FinalTemplate.Folder.Name -ne $Folder.Name) {
-                        Move-Template -Template $FinalTemplate -Destination $Folder -Confirm:$false | Out-Null
+                        try { Move-Template -Template $FinalTemplate -Destination $Folder -Confirm:$false -ErrorAction Stop | Out-Null } catch { }  # Ignore if already in folder
                     }
                     
                     Write-Log "    Successfully imported $TemplateName v$($Export.Version)"
