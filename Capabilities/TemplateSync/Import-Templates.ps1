@@ -251,6 +251,13 @@ try {
                     
                     $OvfConfig = Get-OvfConfiguration -Ovf $OvfFile.FullName
                     
+                    # Set network mapping
+                    if ($OvfConfig.NetworkMapping) {
+                        $OvfConfig.NetworkMapping.PSObject.Properties.Name | ForEach-Object {
+                            $OvfConfig.NetworkMapping.$_.Value = $Network
+                        }
+                    }
+                    
                     
                     Import-VApp -Source $OvfFile.FullName -OvfConfiguration $OvfConfig `
                         -Name $TempName -VMHost $VMHost -Datastore $Datastore `
