@@ -225,7 +225,7 @@ try {
                     
                     Import-VApp -Source $OvfFile.FullName -OvfConfiguration $OvfConfig `
                         -Name $TempName -VMHost $VMHost -Datastore $Datastore `
-                        -Location $Folder -DiskStorageFormat Thin -ErrorAction Stop | Out-Null
+                        -DiskStorageFormat Thin -ErrorAction Stop | Out-Null
                     
                     # Convert to template
                     $NewVM = Get-VM -Name $TempName
@@ -253,6 +253,9 @@ try {
                     # Rename new template
                     $NewTemplate = Get-Template -Name $TempName
                     Set-Template -Template $NewTemplate -Name $TemplateName -Confirm:$false | Out-Null
+                    
+                    # Move to destination folder
+                    Move-Template -Template (Get-Template -Name $TemplateName) -Destination $Folder -Confirm:$false | Out-Null
                     
                     Write-Log "    Successfully imported $TemplateName v$($Export.Version)"
                     $ImportCount++
