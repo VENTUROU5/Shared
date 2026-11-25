@@ -183,8 +183,12 @@ try {
                 
                 Write-Log "  $TemplateName : Importing v$($Export.Version)..."
                 
-                # Check for existing template
+                # Check for existing template - first in folder, then globally
                 $ExistingTemplate = Get-Template -Location $Folder -Name $TemplateName -ErrorAction SilentlyContinue
+                if (-not $ExistingTemplate) {
+                    # Check globally in case it exists elsewhere
+                    $ExistingTemplate = Get-Template -Name $TemplateName -ErrorAction SilentlyContinue
+                }
                 $PreserveUuid = $null
                 
                 if ($ExistingTemplate) {
@@ -192,7 +196,8 @@ try {
                     $View = Get-View -Id $ExistingTemplate.Id -Property Config
                     $PreserveUuid = $View.Config.InstanceUuid
                     $UuidMapping[$TemplateName] = $PreserveUuid
-                    Write-Log "    Existing template found, will preserve UUID: $PreserveUuid"
+                    Write-Log "    Existing template found at $($ExistingTemplate.Folder.Name), will preserve UUID: $PreserveUuid"
+                }
                 }
                 elseif ($UuidMapping[$TemplateName]) {
                     # Template was deleted but we have stored UUID
@@ -290,8 +295,11 @@ try {
                     $NewTemplate = Get-Template -Name $TempName
                     Set-Template -Template $NewTemplate -Name $TemplateName -Confirm:$false | Out-Null
                     
-                    # Move to destination folder
-                    Move-Template -Template (Get-Template -Name $TemplateName) -Destination $Folder -Confirm:$false | Out-Null
+                    # Move to destination folder (if not already there)
+                    $FinalTemplate = Get-Template -Name $TemplateName
+                    if ($FinalTemplate.Folder.Name -ne $Folder.Name) {
+                        Move-Template -Template $FinalTemplate -Destination $Folder -Confirm:$false | Out-Null
+                    }
                     
                     Write-Log "    Successfully imported $TemplateName v$($Export.Version)"
                     $ImportCount++
