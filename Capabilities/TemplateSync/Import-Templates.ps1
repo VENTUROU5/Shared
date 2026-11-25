@@ -201,7 +201,7 @@ try {
                 }
                 
                 # Find OVF file
-                $OvfFile = Get-ChildItem -Path $Export.Path -Filter "*.ovf" | Select-Object -First 1
+                $OvfFile = Get-ChildItem -Path $Export.Path -Filter "*.ovf" -Recurse | Select-Object -First 1
                 if (-not $OvfFile) {
                     Write-Log "    No OVF file found in $($Export.Path)" "ERROR"
                     continue
