@@ -17,7 +17,7 @@
 #   2. Enumerates OVF items in the Content Library
 #   3. Compares ContentVersion against last known state
 #   4. Exports changed/new items to SMB share
-#   5. Creates manifest.json with metadata for Import-Templates.ps1
+#   5. Creates manifest via New-Manifest function
 #
 # REQUIRES:
 #   - VMware.PowerCLI module (Install-Module VMware.PowerCLI -Scope CurrentUser)
@@ -56,6 +56,9 @@ param(
     [switch]$Force
 )
 
+# Script-level constants for logging
+$ScriptName = "Export-Templates"
+
 # Load configuration (vCenter settings, paths, credentials)
 . $ConfigPath
 
@@ -80,18 +83,35 @@ try {
 $LogFile = Join-Path $LogPath "Export_$(Get-Date -Format yyyyMMdd).log"
 New-Item -ItemType Directory -Path $LogPath -Force -ErrorAction SilentlyContinue | Out-Null
 
-function Write-Log {
+function Write-LogMessage {
     <#
     .SYNOPSIS
         Writes timestamped log entry to file and console.
+    .PARAMETER LogLevel
+        Log severity: DEBUG, INFO, WARN, ERROR. Default: INFO
+    .PARAMETER LogFilePath
+        Path to the log file.
+    .PARAMETER LogMessage
+        The message to log.
     #>
     param(
-        [string]$Message,
-        [string]$Level = "INFO"  # INFO, WARN, ERROR
+        [ValidateSet("DEBUG", "INFO", "WARN", "ERROR")]
+        [string]$LogLevel = "INFO",
+        [Parameter(Mandatory)]
+        [string]$LogFilePath,
+        [Parameter(Mandatory)]
+        [string]$LogMessage
     )
-    $Entry = "$(Get-Date -Format yyyy-MM-dd HH:mm:ss) [$Level] $Message"
-    Add-Content -Path $LogFile -Value $Entry
-    if ($Level -eq "ERROR") { Write-Error $Message } else { Write-Host $Entry }
+    
+    $Entry = "$(Get-Date -Format yyyy-MM-dd HH:mm:ss) [$LogLevel] $LogMessage"
+    Add-Content -Path $LogFilePath -Value $Entry
+    
+    switch ($LogLevel) {
+        "ERROR" { Write-Error $LogMessage }
+        "WARN"  { Write-Warning $LogMessage }
+        "DEBUG" { Write-Verbose $LogMessage }
+        default { Write-Host $Entry }
+    }
 }
 
 # ----------------------------------------------------------------------------
@@ -107,10 +127,19 @@ function Get-ExportState {
     .OUTPUTS
         Hashtable of template name -> last exported version
     #>
+    $FunctionName = "Get-ExportState"
+    
     $StateFile = Join-Path $StatePath "export-state.json"
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${FunctionName}: Looking for state file at $StateFile"
+    
     if (Test-Path $StateFile) {
-        return Get-Content $StateFile -Raw | ConvertFrom-Json -AsHashtable
+        Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${FunctionName}: State file found, loading..."
+        $state = Get-Content $StateFile -Raw | ConvertFrom-Json -AsHashtable
+        Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${FunctionName}: Loaded $($state.Count) template states"
+        return $state
     }
+    
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${FunctionName}: No state file found, returning empty hashtable"
     return @{}
 }
 
@@ -122,18 +151,29 @@ function Save-ExportState {
         Hashtable of template name -> current version
     #>
     param([hashtable]$State)
+    
+    $FunctionName = "Save-ExportState"
+    
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${FunctionName}: Ensuring state directory exists at $StatePath"
     New-Item -ItemType Directory -Path $StatePath -Force -ErrorAction SilentlyContinue | Out-Null
-    $State | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $StatePath "export-state.json")
+    
+    $StateFile = Join-Path $StatePath "export-state.json"
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${FunctionName}: Saving $($State.Count) template states to $StateFile"
+    $State | ConvertTo-Json -Depth 10 | Set-Content $StateFile
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${FunctionName}: State file saved successfully"
 }
 
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
 try {
-    Write-Log "===== Starting Export Check ====="
+    Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: ===== Starting Export Check ====="
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Force mode: $Force"
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Config loaded from: $ConfigPath"
     
     # Ensure all required directories exist on SMB share
     foreach ($Path in @($ExportsPath, $StatePath, $UuidsPath)) {
+        Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Ensuring directory exists: $Path"
         New-Item -ItemType Directory -Path $Path -Force -ErrorAction SilentlyContinue | Out-Null
     }
     
@@ -141,26 +181,36 @@ try {
     # VCENTER CONNECTION
     # ------------------------------------------------------------------------
     if (-not (Test-Path $CredentialFile)) {
-        Write-Log "Credential file not found: $CredentialFile" "ERROR"
-        Write-Log "Create with: Get-Credential | Export-Clixml -Path " "ERROR"
+        Write-LogMessage -LogLevel "ERROR" -LogFilePath $LogFile -LogMessage "${ScriptName}: Credential file not found: $CredentialFile"
+        Write-LogMessage -LogLevel "ERROR" -LogFilePath $LogFile -LogMessage "${ScriptName}: Create with: Get-Credential | Export-Clixml -Path "
         exit 1
     }
     
     # Load encrypted credentials (must be created by same user running this script)
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Loading credentials from $CredentialFile"
     $Cred = Import-Clixml $CredentialFile
-    Write-Log "Connecting to $SourceVCenter..."
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Credentials loaded for user: $($Cred.UserName)"
+    
+    Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: Connecting to $SourceVCenter..."
     Connect-VIServer -Server $SourceVCenter -Credential $Cred -ErrorAction Stop | Out-Null
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Successfully connected to $SourceVCenter"
     
     # ------------------------------------------------------------------------
     # CONTENT LIBRARY ENUMERATION
     # ------------------------------------------------------------------------
     # Get the Content Library and filter to OVF items only
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Looking for Content Library: $SourceContentLibrary"
     $Library = Get-ContentLibrary -Name $SourceContentLibrary -ErrorAction Stop
-    Write-Log "Found library: $($Library.Name)"
+    Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: Found library: $($Library.Name)"
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Library ID: $($Library.Id)"
     
     # Only process OVF items (not ISO, VMTX, etc.)
-    $Items = Get-ContentLibraryItem -ContentLibrary $Library | Where-Object { $_.ItemType -eq "ovf" }
-    Write-Log "Found $($Items.Count) OVF items"
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Enumerating library items..."
+    $AllItems = Get-ContentLibraryItem -ContentLibrary $Library
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Total items in library: $($AllItems.Count)"
+    
+    $Items = $AllItems | Where-Object { $_.ItemType -eq "ovf" }
+    Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: Found $($Items.Count) OVF items"
     
     # Load previous state and prepare new state
     $State = Get-ExportState
@@ -176,62 +226,73 @@ try {
         $LastVersion = $State[$Item.Name]
         $NewState[$Item.Name] = $Version
         
+        Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Processing item: $($Item.Name)"
+        Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Current version: $Version, Last exported version: $LastVersion"
+        
         # Check if export is needed (version changed or -Force flag)
         if ($Force -or ($Version -ne $LastVersion)) {
             $Action = if ($LastVersion) { "Updated ($LastVersion -> $Version)" } else { "New" }
-            Write-Log "$($Item.Name): $Action - exporting..."
+            Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: $($Item.Name): $Action - exporting..."
             
             # Create version-specific export directory: exports\<TemplateName>\<Version>\
-            $ExportDir = Join-Path $ExportsPath $Item.Name $Version
+            $TemplateDir = Join-Path $ExportsPath $Item.Name
+            $ExportDir = Join-Path $TemplateDir $Version
+            
+            Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Template directory: $TemplateDir"
+            Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Export directory: $ExportDir"
             
             # Skip if already exported (idempotent)
             if (Test-Path $ExportDir) {
-                Write-Log "  Export already exists, skipping"
+                Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: Export already exists, skipping"
                 continue
             }
             
             New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null
+            Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Created export directory"
             
             try {
                 # Export OVF from Content Library to SMB share
                 # This creates .ovf descriptor and .vmdk disk files
+                Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Starting Export-ContentLibraryItem..."
+                $exportStart = Get-Date
                 Export-ContentLibraryItem -ContentLibraryItem $Item -Destination $ExportDir -ErrorAction Stop | Out-Null
+                $exportDuration = (Get-Date) - $exportStart
+                Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Export completed in $($exportDuration.TotalSeconds) seconds"
                 
-                # Create manifest.json with metadata for Import-Templates.ps1
-                # This file is used to identify the export and track versions
-                @{
-                    Name = $Item.Name
-                    Version = $Version
-                    ExportedAt = (Get-Date).ToString("o")  # ISO 8601 format
-                    SourceVCenter = $SourceVCenter
-                    SourceLibrary = $SourceContentLibrary
-                    ItemId = $Item.Id
-                } | ConvertTo-Json | Set-Content (Join-Path $ExportDir "manifest.json")
+                Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: Exported to $ExportDir"
                 
-                Write-Log "  Exported to $ExportDir"
+                # Call New-Manifest to create manifest and zip
+                Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Calling New-Manifest for $($Item.Name)..."
+                New-Manifest -FilePath $TemplateDir -LogPath $LogFile
+                Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: New-Manifest completed"
+                
                 $ExportCount++
             }
             catch {
-                Write-Log "  Export failed: $_" "ERROR"
+                Write-LogMessage -LogLevel "ERROR" -LogFilePath $LogFile -LogMessage "${ScriptName}: Export failed for $($Item.Name): $_"
+                Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Cleaning up failed export directory: $ExportDir"
                 # Cleanup partial export on failure
                 Remove-Item -Path $ExportDir -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
         else {
             # No change detected - skip this template
-            Write-Log "$($Item.Name): No change (v$Version)"
+            Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: $($Item.Name): No change (v$Version)"
         }
     }
     
     # Save updated state for next run
     Save-ExportState -State $NewState
-    Write-Log "===== Export Complete: $ExportCount exported ====="
+    Write-LogMessage -LogFilePath $LogFile -LogMessage "${ScriptName}: ===== Export Complete: $ExportCount exported ====="
 }
 catch {
-    Write-Log "Script failed: $_" "ERROR"
+    Write-LogMessage -LogLevel "ERROR" -LogFilePath $LogFile -LogMessage "${ScriptName}: Script failed: $_"
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Stack trace: $($_.ScriptStackTrace)"
     exit 1
 }
 finally {
     # Always disconnect from vCenter (suppress errors if not connected)
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Disconnecting from vCenter..."
     Disconnect-VIServer * -Confirm:$false -ErrorAction SilentlyContinue
+    Write-LogMessage -LogLevel "DEBUG" -LogFilePath $LogFile -LogMessage "${ScriptName}: Cleanup complete"
 }
